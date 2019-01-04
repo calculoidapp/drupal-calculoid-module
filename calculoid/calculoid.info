@@ -1,0 +1,5 @@
+name = calculoid
+description = This module gives ability to use your calculoid calculators as plugin.
+core = 7.x
+package = Other
+configure   = admin/config/content/calculoid

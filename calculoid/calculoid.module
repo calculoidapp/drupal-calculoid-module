@@ -1,0 +1,184 @@
+<?php
+
+/**
+ * @file
+ *  Module file.
+ */
+
+/**
+ * Implements hook_help().
+ */
+function calculoid_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#calculoid':
+      return '<h3>' . t('About') . '</h3><p>' . t('This module provide Ckeditor plugin that can use to insert Calculoid Calculator on content.') . '</p>';
+  }
+}
+
+/**
+ * Implements hook_permission().
+ */
+function calculoid_permission() {
+  return [
+    'administer calculoid calculator' => [
+      'title' => t('Administer calculoid admin configuration'),
+      'description' => t('Administer calculoid admin configuration.'),
+    ],
+  ];
+}
+
+/**
+ * Implements hook_menu().
+ */
+function calculoid_menu() {
+  $items = [];
+  $items['admin/config/content/calculoid'] = array(
+    'title' => t('Calculoid Configuration'),
+    'description' => t('Manage Calculoid API Key.'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('calculoid_admin_configuration_form'),
+    'file' => 'includes/calculoid.admin.inc',
+    'access arguments' => array('administer calculoid calculator'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_ckeditor_plugin().
+ */
+function calculoid_ckeditor_plugin() {
+  return array(
+    'calculoid' => array(
+      // Name of the plugin used to write it.
+      'name' => 'calculoid',
+      'desc' => t('Plugin to add calculoid shortcode'),
+      'path' => drupal_get_path('module', 'calculoid') . '/plugins/calculoid/',
+      'buttons' => array(
+        'calculoid' => array(
+          'icon' => 'icons/calculoid.png',
+          'label' => t('Insert calculoid shortcode'),
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_filter_info().
+ */
+function calculoid_filter_info() {
+  $filters['filter_calculoid'] = array(
+    'title' => t('Convert calculoid Shortcode into embedding code'),
+    'process callback' => '_filter_calculoid',
+    'tips callback' => '_filter_calculoid_tips',
+  );
+  return $filters;
+}
+
+/**
+ * Implements callback_filter_tips().
+ *
+ * Provides help for the URL filter.
+ *
+ * @see filter_filter_info()
+ */
+function _filter_calculoid_tips($filter, $format, $long = FALSE) {
+  return t('Calculoid shortcodes will be converted into embedded code.');
+}
+
+/**
+ * Get Configs for calculoid.
+ *
+ *
+ * @return array
+ *   Configs.
+ */
+function _calculoid_get_configs() {
+  $configs = &drupal_static(__FUNCTION__, array());
+
+  if (!count($configs)) {
+    $configs['api_key'] = variable_get('calculoid_api_key', '');
+    $configs['app_name'] = variable_get('calculoid_app_name', 'calculoid');
+    $configs['app_controller'] = variable_get('calculoid_app_controller', 'CalculoidMainCtrl');
+    $configs['show_title'] = variable_get('calculoid_show_title', 0);
+    $configs['show_description'] = variable_get('calculoid_show_description', 0);
+    $configs['calculoid_add_external_scripts'] = variable_get('calculoid_add_external_scripts', 1);
+  }
+
+  return $configs;
+}
+
+  /**
+ * Implements callback_filter_process().
+ */
+function _filter_calculoid($text, $filter) {
+  preg_match_all('/\[calculoid.*?\]/', $text, $matches);
+  if (count($matches)) {
+    foreach ($matches[0] as $match) {
+      $replace_text = '<div ng-app="@APP" ng-controller="@CONTROLLER" ng-init="init({calcId:@CALCID,apiKey:\'@APIKEY\', showTitle:@TITLE, showDescription:@DESCRIPTION, values:@VALUES})" ng-include="load()"></div>';
+      $original = $match;
+      $match = substr($match, 1, -1);
+      preg_match('/\{(.*)\}/', $match, $prefilledValues);
+      if (count($prefilledValues)) {
+        $prefilledValues = $prefilledValues[0];
+      }
+      $match = str_replace($prefilledValues, '{}', $match);
+      $match = explode(' ', $match);
+      foreach ($match as $value) {
+        $value = explode('=', $value);
+        if ($value[0] == 'id') {
+          $replace_text = str_replace('@CALCID', $value[1], $replace_text);
+        }
+        if ($value[0] == 'values') {
+          if (!empty($value[1])) {
+            $replace_text = str_replace('@VALUES', $prefilledValues, $replace_text);
+          }
+          else {
+            $replace_text = str_replace('@VALUES', '{}', $replace_text);
+          }
+        }
+      }
+      $configs = _calculoid_get_configs();
+      if (count($configs)) {
+        $replace_text = str_replace('@APIKEY', $configs['api_key'], $replace_text);
+        $replace_text = str_replace('@APP', $configs['app_name'], $replace_text);
+        $replace_text = str_replace('@CONTROLLER', $configs['app_controller'], $replace_text);
+        $replace_text = str_replace('@TITLE', $configs['show_title'], $replace_text);
+        $replace_text = str_replace('@DESCRIPTION', $configs['show_description'], $replace_text);
+      }
+      $text = str_replace($original, $replace_text, $text);
+    }
+  }
+  return $text;
+}
+
+/**
+ * Implements hook_preprocess_page().
+ */
+function calculoid_preprocess_page(&$vars) {
+  $configs = _calculoid_get_configs();
+  if (_is_calculoid_plugin_enabled() && $configs['calculoid_add_external_scripts'] && !path_is_admin(current_path())) {
+    drupal_add_js('http://embed2.calculoid.com/scripts/combined.min.js', 'external');
+    drupal_add_css('http://embed2.calculoid.com/styles/main.css', 'external');
+  }
+}
+
+/**
+ * Check if our plugin enabled or not.
+ *
+ * @return bool
+ *   True if plugin enabled.
+ */
+function _is_calculoid_plugin_enabled() {
+  if (module_exists('ckeditor')) {
+    module_load_include('module', 'ckeditor');
+    $profiles = ckeditor_profile_load();
+    foreach ($profiles as $profile) {
+      if ((isset($profile->settings['loadPlugins']) && array_key_exists('calculoid', $profile->settings['loadPlugins']))) {
+        return TRUE;
+      }
+    }
+  }
+  return FALSE;
+}
